@@ -343,7 +343,7 @@ def generate_internvl2_response(**response_kwargs) -> str:
 
 
 def generate_internvl3_response(**response_kwargs) -> str:
-    """Generates a response from the InternVL2 model based on the provided messages and configuration.
+    """Generates a response from the InternVL3 model based on the provided messages and configuration.
 
     Args:
         **response_kwargs: A dictionary containing the following keys:
@@ -379,8 +379,6 @@ def generate_internvl3_response(**response_kwargs) -> str:
 
     except Exception as e:
         raise RuntimeError("Failed to generate response from the model.") from e
-
-
 
     return generated_response
 
