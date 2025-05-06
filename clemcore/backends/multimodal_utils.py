@@ -342,6 +342,49 @@ def generate_internvl2_response(**response_kwargs) -> str:
     return generated_response
 
 
+def generate_internvl3_response(**response_kwargs) -> str:
+    """Generates a response from the InternVL2 model based on the provided messages and configuration.
+
+    Args:
+        **response_kwargs: A dictionary containing the following keys:
+            - messages (List[str]): A list of message dictionaries.
+            - device (str): The device to which the image tensors will be moved (e.g., 'cuda' or 'cpu').
+            - max_tokens (int): The maximum number of tokens to generate.
+            - model: The model instance used for generating responses.
+            - processor: The processor instance used for processing images.
+
+    Returns:
+        str: The generated response from the model.
+
+    Raises:
+        RuntimeError: If the model fails to generate a response.
+    """
+    messages = response_kwargs['messages']
+    device = response_kwargs['device']
+    max_tokens = response_kwargs['max_tokens']
+    model = response_kwargs['model']
+    processor = response_kwargs['processor']
+    do_sample = response_kwargs['do_sample']
+
+    images = get_internvl2_image(messages=messages, device=device)
+    history, question = generate_history_internvl2(messages=messages)
+
+    if not history:
+        history = None
+    # InternVL3 needs an explicitly passed `pad_token_id` to prevent excessive warnings
+    generation_config = dict(max_new_tokens=max_tokens, do_sample=do_sample, pad_token_id=processor.eos_token_id)
+    try:
+        generated_response, _ = model.chat(processor, images, question, generation_config,
+                                                     history=history, return_history=True)
+
+    except Exception as e:
+        raise RuntimeError("Failed to generate response from the model.") from e
+
+
+
+    return generated_response
+
+
 """
 ##### LLAVA TYPE MODELS #####
 Compatible models - LLaVA 1.5, LLaVA 1.6, Idefics3
