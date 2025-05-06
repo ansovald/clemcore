@@ -12,7 +12,6 @@ from clemcore.clemgame import GameRegistry, GameSpec
 from clemcore.clemgame import benchmark
 from clemcore import clemeval
 from clemcore.clemgame.transcripts.builder import build_transcripts
-from clemcore.playpen import BasePlayPen
 
 logger = logging.getLogger(__name__)
 stdout_logger = logging.getLogger("clemcore.cli")
@@ -79,61 +78,6 @@ def list_games(game_selector: str, verbose: bool):
             print(game_name, wrapper.fill(game_spec["description"]))
 
 
-def train(learner: backends.ModelSpec, teacher: backends.ModelSpec, prefix: str = None):
-    import importlib.util as importlib_util
-    lookup_name = "trainer.py"
-    if prefix:
-        lookup_name = f"{prefix}_trainer.py"
-
-    def is_playpen(obj):
-        return inspect.isclass(obj) and issubclass(obj, BasePlayPen) and obj is not BasePlayPen
-
-    playpen_cls = None
-    for file_name in os.listdir():
-        if file_name == lookup_name:
-            module_path = os.path.join(os.getcwd(), file_name)
-            spec = importlib_util.spec_from_file_location(os.path.splitext(lookup_name)[0], module_path)
-            module = importlib_util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            playpen_subclasses = inspect.getmembers(module, predicate=is_playpen)
-            _, playpen_cls = playpen_subclasses[0]
-            break
-
-    if playpen_cls is None:
-        raise RuntimeError(f"No playpen trainer found in file '{lookup_name}'")
-
-    game_registry = GameRegistry.from_directories_and_cwd_files()
-    model_registry = ModelRegistry.from_packaged_and_cwd_files()
-
-    learner_spec = model_registry.get_first_model_spec_that_unify_with(learner)
-    logger.info(f"Found registered model spec that unifies with {learner.to_string()} -> {learner_spec}")
-
-    teacher_spec = model_registry.get_first_model_spec_that_unify_with(learner)
-    logger.info(f"Found registered model spec that unifies with {teacher.to_string()} -> {teacher_spec}")
-
-    backend_registry = BackendRegistry.from_packaged_and_cwd_files()
-    for model_spec in [learner_spec, teacher_spec]:
-        backend_selector = model_spec.backend
-        if not backend_registry.is_supported(backend_selector):
-            raise ValueError(f"Specified model backend '{backend_selector}' not found in backend registry.")
-        logger.info(f"Found registry entry for backend {backend_selector} "
-                    f"-> {backend_registry.get_first_file_matching(backend_selector)}")
-
-    logger.info(f"Dynamically import backend {learner_spec.backend}")
-    backend = backend_registry.get_backend_for(learner_spec.backend)
-    learner_model = backend.get_model_for(learner_spec)
-    learner_model.set_gen_args(max_tokens=100, temperature=0.0)
-    logger.info(f"Successfully loaded {learner_spec.model_name} model")
-
-    logger.info(f"Dynamically import backend {teacher_spec.backend}")
-    backend = backend_registry.get_backend_for(teacher_spec.backend)
-    teacher_model = backend.get_model_for(teacher_spec)
-    teacher_model.set_gen_args(max_tokens=100, temperature=0.0)
-    logger.info(f"Successfully loaded {teacher_spec.model_name} model")
-
-    playpen_cls(learner_model, teacher_model).learn_interactive(game_registry)
-
-
 def run(game_selector: Union[str, Dict, GameSpec], model_selectors: List[backends.ModelSpec],
         gen_args: Dict, experiment_name: str = None, instances_name: str = None, results_dir: str = None):
     """Run specific model/models with a specified clemgame.
@@ -146,37 +90,37 @@ def run(game_selector: Union[str, Dict, GameSpec], model_selectors: List[backend
         instances_name: Name of the instances JSON file to use for this benchmark run.
         results_dir: Path to the results directory in which to store the episode records.
     """
-    try:
-        # check games first
-        game_registry = GameRegistry.from_directories_and_cwd_files()
-        game_specs = game_registry.get_game_specs_that_unify_with(game_selector)  # throws error when nothing unifies
-        # check models are available
-        model_registry = ModelRegistry.from_packaged_and_cwd_files()
-        unified_model_specs = []
-        for model_selector in model_selectors:
-            unified_model_spec = model_registry.get_first_model_spec_that_unify_with(model_selector)
-            logger.info(f"Found registered model spec that unifies with {model_selector.to_string()} "
-                        f"-> {unified_model_spec}")
-            unified_model_specs.append(unified_model_spec)
-        # check backends are available
-        backend_registry = BackendRegistry.from_packaged_and_cwd_files()
-        for unified_model_spec in unified_model_specs:
-            backend_selector = unified_model_spec.backend
-            if not backend_registry.is_supported(backend_selector):
-                raise ValueError(f"Specified model backend '{backend_selector}' not found in backend registry.")
-            logger.info(f"Found registry entry for backend {backend_selector} "
-                        f"-> {backend_registry.get_first_file_matching(backend_selector)}")
-        # ready to rumble, do the heavy lifting only now, that is, loading the additional modules
-        player_models = []
-        for unified_model_spec in unified_model_specs:
-            logger.info(f"Dynamically import backend {unified_model_spec.backend}")
-            backend = backend_registry.get_backend_for(unified_model_spec.backend)
-            model = backend.get_model_for(unified_model_spec)
-            model.set_gen_args(**gen_args)  # todo make this somehow available in generate method?
-            logger.info(f"Successfully loaded {unified_model_spec.model_name} model")
-            player_models.append(model)
+    # check games first
+    game_registry = GameRegistry.from_directories_and_cwd_files()
+    game_specs = game_registry.get_game_specs_that_unify_with(game_selector)  # throws error when nothing unifies
+    # check models are available
+    model_registry = ModelRegistry.from_packaged_and_cwd_files()
+    unified_model_specs = []
+    for model_selector in model_selectors:
+        unified_model_spec = model_registry.get_first_model_spec_that_unify_with(model_selector)
+        logger.info(f"Found registered model spec that unifies with {model_selector.to_string()} "
+                    f"-> {unified_model_spec}")
+        unified_model_specs.append(unified_model_spec)
+    # check backends are available
+    backend_registry = BackendRegistry.from_packaged_and_cwd_files()
+    for unified_model_spec in unified_model_specs:
+        backend_selector = unified_model_spec.backend
+        if not backend_registry.is_supported(backend_selector):
+            raise ValueError(f"Specified model backend '{backend_selector}' not found in backend registry.")
+        logger.info(f"Found registry entry for backend {backend_selector} "
+                    f"-> {backend_registry.get_first_file_matching(backend_selector)}")
+    # ready to rumble, do the heavy lifting only now, that is, loading the additional modules
+    player_models = []
+    for unified_model_spec in unified_model_specs:
+        logger.info(f"Dynamically import backend {unified_model_spec.backend}")
+        backend = backend_registry.get_backend_for(unified_model_spec.backend)
+        model = backend.get_model_for(unified_model_spec)
+        model.set_gen_args(**gen_args)  # todo make this somehow available in generate method?
+        logger.info(f"Successfully loaded {unified_model_spec.model_name} model")
+        player_models.append(model)
 
-        for game_spec in game_specs:
+    for game_spec in game_specs:
+        try:
             with benchmark.load_from_spec(game_spec, instances_name=instances_name) as game_benchmark:
                 logger.info(
                     f'Running {game_spec["game_name"]} '
@@ -187,21 +131,14 @@ def run(game_selector: Union[str, Dict, GameSpec], model_selectors: List[backend
                     game_benchmark.filter_experiment.append(experiment_name)
                 time_start = datetime.now()
                 game_benchmark.run(player_models=player_models, results_dir=results_dir)
-                try:
-                    stdout_logger.info(f"Scoring game {game_spec['game_name']}")
-                    game_benchmark.compute_scores(results_dir)
-                except Exception as e:
-                    stdout_logger.info(f"There was a problem during scoring. See clembench.log for details.")
-                    logger.error(e, exc_info=True)
                 time_end = datetime.now()
                 logger.info(f'Running {game_spec["game_name"]} took {str(time_end - time_start)}')
+        except Exception as e:
+            stdout_logger.exception(e)
+            logger.error(e, exc_info=True)
 
-    except Exception as e:
-        stdout_logger.exception(e)
-        logger.error(e, exc_info=True)
 
-
-def score(game_selector: Union[str, Dict, GameSpec], experiment_name: str = None, results_dir: str = None):
+def score(game_selector: Union[str, Dict, GameSpec], results_dir: str = None):
     """Calculate scores from a game benchmark run's records and store score files.
     Args:
         game_selector: Name of the game, matching the game's name in the game registry, OR GameSpec-like dict, OR GameSpec.
@@ -212,16 +149,11 @@ def score(game_selector: Union[str, Dict, GameSpec], experiment_name: str = None
     logger.info(f"Scoring game {game_selector}")
     stdout_logger.info(f"Scoring game {game_selector}")
 
-    if experiment_name:
-        logger.info("Only scoring experiment: %s", experiment_name)
-
     game_registry = GameRegistry.from_directories_and_cwd_files()
     game_specs = game_registry.get_game_specs_that_unify_with(game_selector)
     for game_spec in game_specs:
         try:
             with benchmark.load_from_spec(game_spec, do_setup=False) as game_benchmark:
-                if experiment_name:
-                    game_benchmark.filter_experiment.append(experiment_name)
                 time_start = datetime.now()
                 game_benchmark.compute_scores(results_dir)
                 time_end = datetime.now()
@@ -272,9 +204,6 @@ def cli(args: argparse.Namespace):
             list_backends(args.verbose)
         else:
             print(f"Cannot list {args.mode}. Choose an option documented at 'list -h'.")
-    if args.command_name == "train":
-        train(backends.ModelSpec.from_string(args.learner),
-              backends.ModelSpec.from_string(args.teacher))
     if args.command_name == "run":
         run(args.game,
             model_selectors=backends.ModelSpec.from_strings(args.models),
@@ -283,7 +212,7 @@ def cli(args: argparse.Namespace):
             instances_name=args.instances_name,
             results_dir=args.results_dir)
     if args.command_name == "score":
-        score(args.game, experiment_name=args.experiment_name, results_dir=args.results_dir)
+        score(args.game, results_dir=args.results_dir)
     if args.command_name == "transcribe":
         transcripts(args.game, results_dir=args.results_dir)
     if args.command_name == "eval":
@@ -350,10 +279,6 @@ def main():
     list_parser.add_argument("-v", "--verbose", action="store_true")
     list_parser.add_argument("-s", "--selector", type=str, default="all")
 
-    train_parser = sub_parsers.add_parser("train")
-    train_parser.add_argument("-l", "--learner", type=str)
-    train_parser.add_argument("-t", "--teacher", type=str)
-
     run_parser = sub_parsers.add_parser("run", formatter_class=argparse.RawTextHelpFormatter)
     run_parser.add_argument("-m", "--models", type=str, nargs="*",
                             help="""Assumes model names supported by the implemented backends.
@@ -387,8 +312,6 @@ def main():
                                  "When not specified, then the results will be located in 'results'")
 
     score_parser = sub_parsers.add_parser("score")
-    score_parser.add_argument("-e", "--experiment_name", type=str,
-                              help="Optional argument to only run a specific experiment")
     score_parser.add_argument("-g", "--game", type=str,
                               help='A specific game name (see ls), a GameSpec-like JSON string object or "all" (default).',
                               default="all")
